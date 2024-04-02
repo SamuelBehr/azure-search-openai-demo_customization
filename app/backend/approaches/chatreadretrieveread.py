@@ -94,7 +94,6 @@ class ChatReadRetrieveReadApproach(ChatApproach):
         minimum_search_score = overrides.get("minimum_search_score", 0.0)
         minimum_reranker_score = overrides.get("minimum_reranker_score", 0.0)
 
-        filter = self.build_filter(overrides, auth_claims)
         use_semantic_ranker = True if overrides.get("semantic_ranker") and has_text else False
 
         original_user_query = history[-1]["content"]
@@ -115,6 +114,23 @@ class ChatReadRetrieveReadApproach(ChatApproach):
                             }
                         },
                         "required": ["search_query"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "filter_documents",
+                    "description": "Filter sources from the Azure AI Search index for a specific document based on its name",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "file_name": {
+                                "type": "string",
+                                "description": "The exact name of the file to be received from azure search eg: 'hallo.pdf'",
+                            }
+                        },
+                        "required": ["file_name"],
                     },
                 },
             }
@@ -153,6 +169,9 @@ class ChatReadRetrieveReadApproach(ChatApproach):
         # Only keep the text query if the retrieval mode uses text, otherwise drop it
         if not has_text:
             query_text = None
+        
+        # Build the filter (chat completion dependent)
+        filter = self.build_filter(overrides, auth_claims, chat_completion)
 
         results = await self.search(
             top,

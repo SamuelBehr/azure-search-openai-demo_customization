@@ -1,3 +1,4 @@
+import json
 import os
 from abc import ABC
 from dataclasses import dataclass
@@ -26,6 +27,10 @@ from openai import AsyncOpenAI
 
 from core.authentication import AuthenticationHelper
 from text import nonewlines
+
+from openai.types.chat import (
+    ChatCompletion,
+)
 
 
 @dataclass
@@ -117,16 +122,34 @@ class Approach(ABC):
         self.vision_endpoint = vision_endpoint
         self.vision_token_provider = vision_token_provider
 
-    def build_filter(self, overrides: dict[str, Any], auth_claims: dict[str, Any]) -> Optional[str]:
+    def build_filter(self, overrides: dict[str, Any], auth_claims: dict[str, Any], chat_completion: ChatCompletion) -> Optional[str]:
         exclude_category = overrides.get("exclude_category")
         security_filter = self.auth_helper.build_security_filters(overrides, auth_claims)
+        document_filter = self.build_document_filter(chat_completion)
         filters = []
         if exclude_category:
             filters.append("category ne '{}'".format(exclude_category.replace("'", "''")))
         if security_filter:
             filters.append(security_filter)
+        if document_filter:
+            filters.append(document_filter)
         return None if len(filters) == 0 else " and ".join(filters)
+    
+    def build_document_filter(self, chat_completion: ChatCompletion) -> Optional[str]:
+        response_message = chat_completion.choices[0].message
 
+        if response_message.tool_calls:
+            for tool in response_message.tool_calls:
+                if tool.type != "function":
+                    continue
+                function = tool.function
+                if function.name == "filter_documents":
+                    arg = json.loads(function.arguments)
+                    file_name = arg.get("file_name", self.NO_RESPONSE)
+                    if file_name != self.NO_RESPONSE:
+                        return "sourcefile eq '{}'".format(file_name.replace("'", ""))
+        return None
+    
     async def search(
         self,
         top: int,
